@@ -216,10 +216,6 @@ function checkValidators(spec) {
   if (!spec.validate) return;
 
   let text;
-  if (spec.validate.body) {
-    text = 'validate.type must be declared when using validate.body';
-    assert(/json|form/.test(spec.validate.type), text);
-  }
 
   if (spec.validate.type) {
     text = 'validate.type must be either json, form, multipart or stream';
