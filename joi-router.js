@@ -117,15 +117,17 @@ Router.prototype._addRoute = function addRoute(spec) {
   const bodyParser = makeBodyParser(spec);
   const specExposer = makeSpecExposer(spec);
   const validator = makeValidator(spec);
+  const preHandlers = spec.pre ? flatten(spec.pre) : [];
   const handlers = flatten(spec.handler);
 
   const args = [
-    spec.path,
+    spec.path
+  ].concat(preHandlers, [
     prepareRequest,
     specExposer,
     bodyParser,
     validator
-  ].concat(handlers);
+  ], handlers);
 
   const router = this.router;
 
@@ -148,6 +150,7 @@ Router.prototype._validateRouteSpec = function validateRouteSpec(spec) {
   assert(ok, 'invalid route path');
 
   checkHandler(spec);
+  checkPreHandler(spec);
   checkMethods(spec);
   checkValidators(spec);
 };
@@ -162,6 +165,22 @@ function checkHandler(spec) {
   }
 
   return flatten(spec.handler).forEach(isSupportedFunction);
+}
+
+/**
+ * @api private
+ */
+
+function checkPreHandler(spec) {
+  if (!spec.pre) {
+    return
+  }
+
+  if (!Array.isArray(spec.pre)) {
+    spec.pre = [spec.pre];
+  }
+
+  return flatten(spec.pre).forEach(isSupportedFunction);
 }
 
 /**
@@ -253,11 +272,12 @@ function makeBodyParser(spec) {
             return ctx.throw(400, 'expected json');
           }
 
-          opts = {
-            limit: spec.validate.maxBody
-          };
+          opts = spec.validate.jsonOptions || {};
+          if (typeof opts.limit === 'undefined') {
+            opts.limit = spec.validate.maxBody;
+          }
 
-          ctx.request.body = await parse.json(ctx, opts);
+          ctx.request.body = ctx.request.body || await parse.json(ctx, opts);
           break;
 
         case 'form':
@@ -265,11 +285,12 @@ function makeBodyParser(spec) {
             return ctx.throw(400, 'expected x-www-form-urlencoded');
           }
 
-          opts = {
-            limit: spec.validate.maxBody
-          };
+          opts = spec.validate.formOptions || {};
+          if (typeof opts.limit === 'undefined') {
+            opts.limit = spec.validate.maxBody;
+          }
 
-          ctx.request.body = await parse.form(ctx, opts);
+          ctx.request.body = ctx.request.body || await parse.form(ctx, opts);
           break;
 
         case 'stream':
@@ -278,15 +299,17 @@ function makeBodyParser(spec) {
             return ctx.throw(400, 'expected multipart');
           }
 
-          opts = spec.validate.multipartOptions || {}; // TODO document this
-          opts.autoFields = true;
+          opts = spec.validate.multipartOptions || {};
+          if (typeof opts.autoFields === 'undefined') {
+            opts.autoFields = true;
+          }
 
           ctx.request.parts = busboy(ctx, opts);
           break;
       }
     } catch (err) {
-      if (!spec.validate.continueOnError) return ctx.throw(err);
       captureError(ctx, 'type', err);
+      if (!spec.validate.continueOnError) return ctx.throw(err);
     }
 
     await next();
@@ -327,8 +350,8 @@ function makeValidator(spec) {
         err = validateInput(prop, ctx, spec.validate);
 
         if (err) {
-          if (!spec.validate.continueOnError) return ctx.throw(err);
           captureError(ctx, prop, err);
+          if (!spec.validate.continueOnError) return ctx.throw(err);
         }
       }
     }
